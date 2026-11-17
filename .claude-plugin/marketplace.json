@@ -1,0 +1,13 @@
+{
+  "name": "readalong",
+  "owner": {
+    "name": "Imade Bouftini"
+  },
+  "description": "Read Claude Code replies aloud with a local voice, following along sentence by sentence.",
+  "plugins": [
+    {
+      "name": "readalong",
+      "source": "./"
+    }
+  ]
+}

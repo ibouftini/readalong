@@ -1,0 +1,29 @@
+[project]
+name = "readalong-server"
+version = "0.2.0"
+description = "Local speech service for the readalong Claude Code plugin: Kokoro-82M through ONNX Runtime."
+requires-python = "==3.12.*"
+dependencies = [
+  "kokoro-onnx",
+  "numpy",
+  # ONNX Runtime 1.24 dropped Intel Macs and macOS 13; 1.23 is the last release with both.
+  "onnxruntime<1.24; sys_platform == 'darwin'",
+  "onnxruntime; sys_platform != 'darwin'",
+]
+
+[tool.uv]
+package = false
+# The computers readalong installs on; uv.lock holds a package for each.
+environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'linux' and platform_machine == 'aarch64'",
+  "sys_platform == 'darwin'",
+  "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+required-environments = [
+  "sys_platform == 'linux' and platform_machine == 'x86_64'",
+  "sys_platform == 'linux' and platform_machine == 'aarch64'",
+  "sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+  "sys_platform == 'win32' and platform_machine == 'AMD64'",
+]

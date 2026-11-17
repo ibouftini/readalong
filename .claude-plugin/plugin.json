@@ -1,0 +1,125 @@
+{
+  "name": "readalong",
+  "version": "0.1.0",
+  "description": "Reads Claude Code replies aloud with a local voice (Kokoro-82M), sentence by sentence, each in its own language: English, French, Spanish, Italian, Portuguese, Hindi, German and Dutch. The sentence being read, or each word as it is said, is highlighted, with previous, next, pause, speed and auto-read under the reply, and /readalong for the keyboard.",
+  "author": {
+    "name": "Imade Bouftini"
+  },
+  "license": "MIT",
+  "icon": "./assets/icon.png",
+  "keywords": [
+    "tts",
+    "text-to-speech",
+    "read-aloud",
+    "read-along",
+    "kokoro",
+    "accessibility"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "server": {
+      "type": "string",
+      "title": "Speech server",
+      "description": "Where the speech is made. Left as http://127.0.0.1:8881, by the readalong voice, which runs on this computer. Any other address is a speech server of your own with an OpenAI-compatible /v1/audio/speech endpoint that returns WAV; the readalong service plays what it makes.",
+      "default": "http://127.0.0.1:8881"
+    },
+    "voice": {
+      "type": "string",
+      "title": "Voice",
+      "description": "Who reads English: heart (Heart, American, the default), emma (Emma, British) or michael (Michael, American, male). A sentence in French, Spanish, Italian, Portuguese or Hindi is read by Kokoro's voice for that language, a woman's or a man's as this one is; one in German or Dutch by this voice, with that language's sounds. Pick other to name any voice your speech server has, in Other voice below. The gear menu and /readalong offer the three by name too; a voice picked there is remembered until this changes.",
+      "options": [
+        "heart",
+        "emma",
+        "michael",
+        "other"
+      ],
+      "default": "heart"
+    },
+    "otherVoice": {
+      "type": "string",
+      "title": "Other voice",
+      "description": "Used only when Voice is other: the voice's name as your speech server knows it, such as af_bella or bm_george for Kokoro. Leave empty otherwise.",
+      "default": ""
+    },
+    "speed": {
+      "type": "number",
+      "title": "Speed",
+      "description": "Starting reading speed, from 0.5 to 2, 1 for normal. A speed picked in the player is remembered until this changes.",
+      "default": 1
+    },
+    "highlight": {
+      "type": "string",
+      "title": "Highlight",
+      "description": "How the sentence or word being read is marked in the reply: a marker behind it, an underline, or off to leave the reply as drawn.",
+      "options": [
+        "marker",
+        "underline",
+        "off"
+      ],
+      "default": "marker"
+    },
+    "highlightColor": {
+      "type": "string",
+      "title": "Highlight colour",
+      "description": "The colour of the marker or the underline. Pick custom to use a colour of your own, then type its hex code (#RRGGBB) in Custom colour below. /readalong shows each colour on a sample sentence before you pick it.",
+      "options": [
+        "yellow",
+        "orange",
+        "red",
+        "green",
+        "teal",
+        "blue",
+        "custom"
+      ],
+      "default": "yellow"
+    },
+    "customColor": {
+      "type": "string",
+      "title": "Custom colour",
+      "description": "Used only when Highlight colour is custom: a hex code, #RRGGBB or #RGB, such as #FFB3C7. Text on a marker turns dark or white to stay readable.",
+      "default": ""
+    },
+    "follow": {
+      "type": "string",
+      "title": "Follow along by",
+      "description": "What the highlight follows: the sentence being read, or each word as it is said. Words are timed by the readalong voice; with a server that gives no word timings, the sentence is highlighted.",
+      "options": [
+        "sentence",
+        "word"
+      ],
+      "default": "sentence"
+    },
+    "player": {
+      "type": "string",
+      "title": "Audio player",
+      "description": "What plays the sound. auto uses the system's own: Windows' sound player, afplay on macOS, and on Linux the first of pw-play, paplay, aplay and ffplay that works.",
+      "options": [
+        "auto",
+        "pw-play",
+        "paplay",
+        "aplay",
+        "afplay",
+        "ffplay"
+      ],
+      "default": "auto"
+    },
+    "startCommand": {
+      "type": "string",
+      "title": "Start command",
+      "description": "auto starts the readalong voice when it does not answer; none starts nothing, for a voice you run yourself. With a speech server of your own, anything but auto and none is run as a shell command to start it when it does not answer.",
+      "default": "auto"
+    },
+    "autoRead": {
+      "type": "boolean",
+      "title": "Auto-read responses",
+      "description": "Automatically read Claude's responses aloud when they finish.",
+      "default": false
+    },
+    "chime": {
+      "type": "boolean",
+      "title": "Chime before auto-read",
+      "description": "Play a soft two-note chime before an answer is read automatically. An answer that finishes while another Claude Code session's answer is being read is not read; with this on, its chime alone tells you it is ready. Reading started with the play button never chimes.",
+      "default": true
+    }
+  }
+}

@@ -1,0 +1,72 @@
+# Installs the readalong voice as a user would, on every kind of computer it supports, has it
+# make and play speech (with a silent player: runners have no sound card), runs the service's
+# tests, and removes it again.
+name: voice
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-15, macos-15-intel, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      READALONG_PLAYER: 'null'
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner context is not there yet where the job's env is read, so the folder is set here.
+      - name: Where the voice goes
+        shell: bash
+        run: echo "READALONG_HOME=$RUNNER_TEMP/readalong" >> "$GITHUB_ENV"
+
+      - name: Install (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: sh setup.sh --voice-only
+
+      - name: Install (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1 --voice-only
+
+      - name: Service tests
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then py="$READALONG_HOME/server/.venv/Scripts/python.exe"; else py="$READALONG_HOME/server/.venv/bin/python"; fi
+          "$py" -I -m unittest discover -s server -p 'test_*.py' -v
+
+      - name: The installed voice speaks, its words timed
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then py="$READALONG_HOME/server/.venv/Scripts/python.exe"; else py="$READALONG_HOME/server/.venv/bin/python"; fi
+          "$py" -I server/serve.py start --data "$READALONG_HOME"
+          curl -sf -o speech.wav -D headers.txt -H 'Content-Type: application/json' \
+            -d '{"input":"Readalong works on this computer.","voice":"bf_emma"}' http://127.0.0.1:8881/v1/audio/speech
+          grep -i '^x-word-starts: 0*[0-9]' headers.txt
+          test "$(head -c 4 speech.wav)" = RIFF
+
+      - name: An update with nothing changed is quick and changes nothing
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then py="$READALONG_HOME/server/.venv/Scripts/python.exe"; else py="$READALONG_HOME/server/.venv/bin/python"; fi
+          "$py" -I server/install.py --update | tee update.json
+          grep -q '"current"' update.json
+
+      - name: Uninstall (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: |
+          sh setup.sh --uninstall --voice-only
+          test ! -e "$READALONG_HOME"
+
+      - name: Uninstall (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File setup.ps1 --uninstall --voice-only
+          if (Test-Path $env:READALONG_HOME) { throw "$env:READALONG_HOME is still there" }
