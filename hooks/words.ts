@@ -8,6 +8,12 @@
 
 import type { Spoken } from './language'
 
+/**
+ * "vs" or "vs.", lowercase, or capitalised at a sentence's start: "versus" in the sentence's
+ * language. "VS" in capitals is an initialism, as in VS Code, and is left for the voice to spell.
+ */
+const VERSUS = /\b[Vv]s\b\.?(?=\s)/g
+
 /** A unit's spoken name: for one, and for several. */
 type Unit = readonly [string, string]
 
@@ -106,7 +112,7 @@ const ENGLISH: Words = {
     [/\be\.g\.,?/gi, 'for example'],
     [/\bi\.e\.,?/gi, 'that is'],
     [/\bw\.r\.t\.?/gi, 'with respect to'],
-    [/\bvs\.?(?=\s)/gi, 'versus'],
+    [VERSUS, 'versus'],
     [/\bapprox\.(?=\s)/gi, 'approximately'],
     [/\bet al\./gi, 'and colleagues'],
     [/\bcf\.(?=\s)/gi, 'compare'],
@@ -157,7 +163,7 @@ const FRENCH: Words = {
     [/\bp\.\s?ex\.,?/gi, 'par exemple'],
     [/\bi\.e\.,?/gi, "c'est-à-dire"],
     [/\bc\.?-?à\.?-?d\.?(?!\p{L})/giu, "c'est-à-dire"],
-    [/\bvs\.?(?=\s)/gi, 'contre'],
+    [VERSUS, 'contre'],
     [/\bet al\./gi, 'et collègues'],
     [/\bcf\.(?=\s)/gi, 'voir'],
     [/\benv\.(?=\s)/gi, 'environ'],
@@ -202,7 +208,7 @@ const SPANISH: Words = {
     [/\be\.g\.,?/gi, 'por ejemplo'],
     [/\bp\.\s?ej\.,?/gi, 'por ejemplo'],
     [/\bi\.e\.,?/gi, 'es decir'],
-    [/\bvs\.?(?=\s)/gi, 'contra'],
+    [VERSUS, 'contra'],
     [/\baprox\.(?=\s)/gi, 'aproximadamente'],
     [/\bet al\./gi, 'y colegas'],
     [/\bcf\.(?=\s)/gi, 'véase'],
@@ -246,7 +252,7 @@ const ITALIAN: Words = {
     [/\b(?:ad|p\.|per)\s?es\.,?/gi, 'per esempio'],
     [/\bi\.e\.,?/gi, 'cioè'],
     [/\becc\./gi, 'eccetera'],
-    [/\bvs\.?(?=\s)/gi, 'contro'],
+    [VERSUS, 'contro'],
     [/\bca\.(?=\s)/gi, 'circa'],
     [/\bet al\./gi, 'e colleghi'],
     [/\bcf\.(?=\s)/gi, 'vedi'],
@@ -291,7 +297,7 @@ const PORTUGUESE: Words = {
     [/\be\.g\.,?/gi, 'por exemplo'],
     [/\bp\.\s?ex\.,?/gi, 'por exemplo'],
     [/\bi\.e\.,?/gi, 'isto é'],
-    [/\bvs\.?(?=\s)/gi, 'contra'],
+    [VERSUS, 'contra'],
     [/\baprox\.(?=\s)/gi, 'aproximadamente'],
     [/\bet al\./gi, 'e colegas'],
     [/\bcf\.(?=\s)/gi, 'veja'],
@@ -363,7 +369,7 @@ const GERMAN: Words = {
     [/\bggf\./g, 'gegebenenfalls'],
     [/\bu\.\s?a\.(?=\s)/g, 'unter anderem'],
     [/\bca\.(?=\s)/gi, 'circa'],
-    [/\bvs\.?(?=\s)/gi, 'gegen'],
+    [VERSUS, 'gegen'],
     [/\bvgl\.(?=\s)/gi, 'vergleiche'],
   ],
   arrow: 'nach',
@@ -409,7 +415,7 @@ const DUTCH: Words = {
     [/\benz\./gi, 'enzovoort'],
     [/\bo\.a\.(?=\s)/gi, 'onder andere'],
     [/\bca\.(?=\s)/gi, 'circa'],
-    [/\bvs\.?(?=\s)/gi, 'tegen'],
+    [VERSUS, 'tegen'],
   ],
   arrow: 'naar',
   and: 'en',

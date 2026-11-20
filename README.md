@@ -22,12 +22,13 @@
   <a href="#install">Install</a> · <a href="#how-to-use-it">How to use it</a> · <a href="#languages">Languages</a> · <a href="#settings">Settings</a> · <a href="#what-runs-on-your-computer">What runs on your computer</a> · <a href="#if-something-goes-wrong">Help</a>
 </p>
 
-https://github.com/user-attachments/assets/40fb4624-c047-4be6-b60e-d0091c11d149
+https://github.com/user-attachments/assets/87db12aa-d677-4d5a-8c28-ccdaa16e1139
 
 ## Install
 
-readalong works on Windows, macOS and Linux with an up-to-date Claude Code. Pick the way that
-matches how you use Claude Code.
+readalong works on Windows, macOS and Linux with an up-to-date Claude Code. Installing it from
+Claude Code needs [Git](#what-your-computer-needs), because Claude Code downloads plugins from
+GitHub with it. Pick the way that matches how you use Claude Code.
 
 **In a terminal**, run this command inside Claude Code:
 
@@ -58,11 +59,30 @@ powershell -ExecutionPolicy Bypass -File readalong\setup.ps1              # Wind
 
 Add `--voice-only` to install only the voice.
 
+**Without Git**, download the source code zip of the
+[latest release](https://github.com/ibouftini/readalong/releases/latest), unzip it, rename the
+folder to `readalong` and run the setup script from it, as above. Claude Code then reads the plugin
+from that folder, so keep it where it is. To update, unzip the next release into the same folder,
+replacing its files, and start a new Claude Code session.
+
 ### What your computer needs
 
-Nothing has to be installed beforehand. The install downloads [uv](https://docs.astral.sh/uv/), a
-tool that sets up the exact Python version and packages the voice was tested with. This copy of
-Python is kept separate from any Python you already have. The voice runs on:
+**Git.** Claude Code downloads plugins from GitHub with Git, so installing from `/plugin` or the
+VS Code menu fails without it, with the message `Executable not found in $PATH: "git"`. To check,
+run `git --version` in a terminal. To install it:
+
+- **Windows:** run `winget install --id Git.Git -e` in a terminal, or download it from
+  [git-scm.com](https://git-scm.com/download/win). Then restart VS Code or the terminal, so Claude
+  Code finds it.
+- **macOS:** run `xcode-select --install`. Git comes with Apple's command line tools.
+- **Linux:** install it from your package manager, for example `sudo apt install git`,
+  `sudo dnf install git` or `sudo pacman -S git`.
+
+If you would rather not install Git, use the setup script from a download, as described above.
+
+Nothing else has to be installed beforehand. The install downloads
+[uv](https://docs.astral.sh/uv/), a tool that sets up the exact Python version and packages the
+voice was tested with. This copy of Python is kept separate from any Python you already have. The voice runs on:
 
 - Windows 10 and 11 (x64, and ARM through Windows 11's x64 emulation)
 - macOS 13 or later (Apple silicon and Intel)
@@ -93,22 +113,32 @@ Two things stay because you added them yourself: the marketplace entry in Claude
 
 ## How to use it
 
-- **Follow along.** The sentence being read is highlighted in the reply. If you find it easier to
-  keep your place one word at a time, pick **Word** under Follow in the gear menu: each word then
-  lights up as it is spoken.
+- **Follow along.** The sentence being read is highlighted in the reply, and the text not read yet
+  is dim, so what has been read stands out. If you find it easier to keep your place one word at a
+  time, pick **Word** under Follow in the gear menu: each word then lights up as it is spoken. Pick
+  **Plain** under Unread to keep the whole reply undimmed.
 - **Control the reading.** The player under the reply lets you go to the previous or next sentence,
-  pause, stop, and change the speed from 0.5x to 2x.
+  pause, stop, and change the speed from 0.5x to 2x. A new speed starts the current sentence again
+  at that speed.
+- **Read long replies without scrolling.** A reply too tall to read without scrolling is shown in a
+  window of ten lines while it is read. The window moves on with the reading: what has been read
+  leaves at the top, and what comes next appears at the bottom, so the sentence being read stays in
+  view. A ▲ above the text or a ▼ below it shows that more of the reply is there. Code and tables
+  pass through the window as they are. To see the whole reply, press **Show the whole reply** in the
+  player; press it again to go back to the window. The reading goes on where it was, and the choice
+  is kept for the next long reply. A shorter reply is always shown whole.
 - **Auto-read.** Turn it on in the gear menu to have each answer read as soon as Claude finishes
   it. A soft chime plays first.
 - **Choose a voice.** Heart (American woman), Emma (British woman) and Michael (American man) are
   the best-rated English voices of Kokoro, the voice model readalong uses. Each one says hello when
-  you pick it. If a reading is in progress, it continues in the new voice.
+  you pick it. If a reading is in progress, the current sentence starts again in the new voice.
 - **Change the highlight.** The gear menu also sets the highlight style: a marker or an underline,
   in one of six colours. Changes apply immediately. `/readalong` has the same settings, plus a
   custom colour by hex code and a sample sentence to preview it.
 - **Natural reading.** File paths, line numbers, dates, units and simple maths are spoken the way a
-  person would say them. Code blocks, tables and web addresses are skipped. Links are read by their
-  text.
+  person would say them. Code blocks, tables, equations set on their own lines (`$$ … $$`) and web
+  addresses are skipped: they stay on screen, and the reading goes on after them. Links are read by
+  their text.
 - **Quiet when you talk.** Sending a message stops the reading. So does speaking: when a program
   starts recording from your microphone, for dictation or a call, the voice goes quiet. An answer
   that finishes during a recording is not read automatically, though the play button still works.
@@ -120,23 +150,36 @@ Two things stay because you added them yourself: the marketplace entry in Claude
 
 ### In a terminal
 
-In a terminal, Claude Code passes mouse clicks to plugins only in its fullscreen layout, so the
-buttons under a reply may not respond. Everything also works from the keyboard. While a reply is
-read, a line above the prompt shows where the reading is and which keys control it:
+Claude Code draws a terminal session in one of two layouts, picked when the session starts. In the
+fullscreen layout, mouse clicks work and `/readalong` opens beside the conversation, once the
+window is at least 110 columns wide. In the classic layout, clicks never reach a plugin, so the
+buttons under a reply do not respond and `/readalong` opens above the prompt.
 
-<img src="assets/terminal-reading.png" alt="A reply being read in a terminal, with the current sentence and the keys 1 to 4 shown above the prompt" width="760">
+When you have not chosen a layout, Claude Code picks one for each session, so two sessions can
+differ. To get the same layout every time, type `/tui fullscreen` (or `/tui classic`) once. Claude
+Code saves the choice and restarts the session in it, keeping the conversation.
+
+Everything also works from the keyboard, in both layouts:
 
 - **Read the last answer:** type `r` and press Enter.
-- **Control the reading:** while a reply is read, a line above the prompt shows the current
-  sentence. Type a number into the empty prompt, without pressing Enter: `1` pauses or resumes,
-  `2` goes back, `3` skips ahead, `4` stops. You can also type `p`, `b`, `n` or `s` and press
-  Enter. These one-letter messages go to readalong instead of Claude, which Claude Code notes in
-  the conversation. Any longer message goes to Claude as usual and stops the reading.
-- **Open `/readalong`** to get a panel above the prompt with the same controls, the speed, all the
-  settings and the voice's status. From there you can also stop the voice (`x`). Move with Tab or
-  the arrow keys, select with Enter, close with Esc. Sending a message closes it too.
+- **Control the reading:** type `b` to go back, `p` to pause or resume, `n` to skip ahead or `s`
+  to stop, then press Enter. In a long reply, `w` switches between the window and the whole reply.
+  The player reminds you of these letters while a reply is read. These
+  one-letter messages go to readalong instead of Claude, which Claude Code notes in the
+  conversation. Any longer message goes to Claude as usual and stops the reading.
+- **Open `/readalong`** to get a panel with the same controls, the speed, all the settings and the
+  voice's status. From there you can also stop the voice (`x`). Move with Tab or the arrow keys,
+  select with Enter, close with Esc. Sending a message closes it too. The panel's last line says
+  whether clicks work in it.
 
-<img src="assets/terminal-panel.png" alt="The /readalong panel: speed, auto-read, chime, voice, highlight and colour settings, and the voice's status" width="760">
+A long reply being read in a terminal: the player lists the letters, and the reply is shown in its
+window, the sentence being read marked and the rest dim.
+
+<img src="assets/terminal-reading.png" alt="A reply being read in a terminal: the player with its letters, the sentence being read marked and the rest dim, in a window with ▲ and ▼" width="760">
+
+The `/readalong` panel while a reply is read:
+
+<img src="assets/terminal-panel.png" alt="The /readalong panel while a reply is read: its controls and the sentence being read, then the speed, auto-read, chime, voice, highlight, follow, unread and colour settings, and the voice's status" width="760">
 
 Auto-read needs no key at all: once it is on, each answer is read when Claude finishes it.
 
@@ -195,6 +238,7 @@ value is the one used.
 | `speed` | `1` | Starting speed, from 0.5 to 2 |
 | `highlight` | `marker` | `marker` behind the sentence, `underline`, or `off` |
 | `follow` | `sentence` | Highlight the whole `sentence`, or each `word` as it is spoken |
+| `unread` | `dim` | While a reply is read, draw the text not read yet `dim`, or leave it `plain` |
 | `highlightColor` | `yellow` | `yellow`, `orange`, `red`, `green`, `teal`, `blue`, or `custom` |
 | `customColor` | | With `custom`: a hex code, `#RRGGBB` or `#RGB`, such as `#FFB3C7` |
 | `autoRead` | `false` | Read each answer when Claude finishes it |

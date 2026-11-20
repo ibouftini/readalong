@@ -937,6 +937,142 @@ test('following words with a voice that times none, the sentence is lit, and a t
   await ui.unmount()
 })
 
+/**
+ * Whether the innermost Text that shows exactly `text` is drawn dim: undefined when no Text shows
+ * it, false when one does undimmed.
+ */
+async function isDimText(ui: Drawing, text: string): Promise<boolean | undefined> {
+  const props = await styleOfText(ui, text)
+  return props === undefined ? undefined : props.dimColor === true
+}
+
+/** Whether any Text that shows `text`, alone or among other words, is drawn dim. */
+async function isDimAnywhere(ui: Drawing, text: string): Promise<boolean> {
+  const found = await ui.findAll({ type: 'Text', text: new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })
+  return found.some(one => one.props.dimColor === true)
+}
+
+/** Whether each Markdown of the reading view is dim, in order: the text before the paragraph read, then after it. */
+async function markdownDim(ui: Drawing): Promise<boolean[]> {
+  return (await ui.findAll({ type: 'Markdown' })).map(found => found.props.dimColor === true)
+}
+
+test('while a reply is read, the text not read yet is dim, and what is read stands out', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const ui = await $.ui.mount({ ...reply(), surface: 'vscode' })
+  await ui.press({ key: 'read' })
+  // The first sentence is lit, the rest of its paragraph and every block after it dim.
+  expect(await litColour(ui, S1)).toBe(YELLOW)
+  expect(await isDimText(ui, S1)).toBe(false)
+  expect(await isDimText(ui, ` ${S2}`)).toBe(true)
+  expect(await markdownDim(ui)).toEqual([true])
+
+  // On the next sentence, the one read is plain again, and nothing of its paragraph is ahead.
+  await clock.advance(1000)
+  expect(await litColour(ui, S2)).toBe(YELLOW)
+  expect(await isDimText(ui, S2)).toBe(false)
+  expect(await ui.find({ type: 'Text', text: /First sentence here\./ })).toBeDefined()
+  expect(await isDimAnywhere(ui, S1)).toBe(false)
+
+  // On the list item, the paragraph above is drawn plain; the code under it, never read, dim.
+  await clock.advance(1000)
+  expect(await litColour(ui, S3)).toBe(YELLOW)
+  expect(await markdownDim(ui)).toEqual([false, true])
+
+  // Going back makes what was ahead dim again: dim follows the place, not what was heard.
+  await ui.press({ key: 'previous' })
+  await ui.press({ key: 'previous' })
+  expect(await isDimText(ui, ` ${S2}`)).toBe(true)
+  expect(await markdownDim(ui)).toEqual([true])
+
+  // Once the reading ends, the reply is the engine's own again, nothing dim.
+  await ui.press({ key: 'stop' })
+  expect(await isIdle(ui)).toBe(true)
+  expect(await markdownDim(ui)).toEqual([])
+  await ui.unmount()
+})
+
+test('the terminal dims the text not read yet too', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const ui = await $.ui.mount({ ...reply(), surface: 'terminal' })
+  await ui.press({ key: 'read' })
+  expect(await litColour(ui, S1)).toBe(YELLOW)
+  expect(await isDimText(ui, ` ${S2}`)).toBe(true)
+  expect(await markdownDim(ui)).toEqual([true])
+  await ui.press({ key: 'stop' })
+  await ui.unmount()
+})
+
+test('with Unread set to Plain in the menu, nothing is dim, at once and in a later session', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  const ui = await $.ui.mount({ ...reply(), surface: 'vscode' })
+  await ui.press({ key: 'read' })
+  await ui.press({ key: 'settings' })
+  expect(await chosen(ui, 'unread', ['Dim', 'Plain'])).toBe('Dim')
+  await ui.press({ key: 'unread:Plain' })
+  expect(await isDimAnywhere(ui, S2)).toBe(false)
+  expect(await markdownDim(ui)).toEqual([false])
+  // The lit sentence keeps its mark: Plain changes only the text ahead.
+  expect(await litColour(ui, S1)).toBe(YELLOW)
+
+  await $.session.start({ cwd: '/', surface: 'vscode', isInteractive: true })
+  await ui.press({ key: 'settings' })
+  expect(await chosen(ui, 'unread', ['Dim', 'Plain'])).toBe('Plain')
+  await ui.unmount()
+})
+
+test('unread plain from /config leaves the reply undimmed', { ...SLOW, options: { unread: 'plain' } }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const ui = await $.ui.mount({ ...reply(), surface: 'vscode' })
+  await ui.press({ key: 'read' })
+  expect(await litColour(ui, S1)).toBe(YELLOW)
+  expect(await isDimAnywhere(ui, S2)).toBe(false)
+  expect(await markdownDim(ui)).toEqual([false])
+  await ui.press({ key: 'stop' })
+  await ui.unmount()
+})
+
+test('following words, the words after the one being said are dim, and those said are not', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock, { wordMs: 300 })
+  const ui = await $.ui.mount({ ...reply(), surface: 'vscode' })
+  await ui.press({ key: 'settings' })
+  await ui.press({ key: 'follow:Word' })
+  await ui.press({ key: 'read' })
+  expect(await litColour(ui, 'First')).toBe(YELLOW)
+  expect(await isDimText(ui, ` sentence here. ${S2}`)).toBe(true)
+
+  await clock.advance(300)
+  expect(await litColour(ui, 'sentence')).toBe(YELLOW)
+  expect(await isDimText(ui, 'sentence')).toBe(false)
+  expect(await isDimText(ui, ` here. ${S2}`)).toBe(true)
+  await ui.press({ key: 'stop' })
+  await ui.unmount()
+})
+
+test('with the highlight off, the text ahead is still dim, so the place shows unmarked', { ...SLOW, options: { highlight: 'off' } }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const ui = await $.ui.mount({ ...reply(), surface: 'vscode' })
+  await ui.press({ key: 'read' })
+  expect(await litColour(ui, S1)).toBeUndefined()
+  expect(await isDimText(ui, ` ${S2}`)).toBe(true)
+  expect(await markdownDim(ui)).toEqual([true])
+  await ui.press({ key: 'stop' })
+  await ui.unmount()
+})
+
 test('following words is remembered by a later session', SLOW, async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
@@ -1453,6 +1589,10 @@ test('/readalong offers the voices by name, and takes a colour by its hex code',
   expect(await panel.find({ key: 'color:#FFB3C7' })).toBeDefined()
   // The sample sentence shows the colour picked.
   expect(await litColour(panel, 'the sentence being read is marked')).toBe('#FFB3C7')
+  // What follows the mark in the sample is drawn as the text not read yet is: dim.
+  expect(await isDimText(panel, ', and the rest is dim.')).toBe(true)
+  await panel.press({ key: 'unread:Plain' })
+  expect(await isDimText(panel, ', and the mark moves on.')).toBe(false)
 
   await panel.input({ key: 'custom-color', text: 'pink' })
   expect(host.toasts.some(text => /"pink" is not a colour/.test(text))).toBe(true)
@@ -1476,10 +1616,10 @@ test('/readalong says what the voice is doing, and stops it on request', SLOW, a
   await panel.unmount()
 })
 
-test('in a terminal, the reading in progress is shown above the prompt, with keys for it', SLOW, async ($, on) => {
+test('in a terminal, nothing is drawn above the prompt; the player says which letters work it', SLOW, async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
-  const host = fakeMachine(on, clock)
+  fakeMachine(on, clock)
   const shown = await $.ui.mount({ ...reply(), surface: 'terminal' })
   const band = await $.ui.mount({
     plugin: 'readalong',
@@ -1488,43 +1628,87 @@ test('in a terminal, the reading in progress is shown above the prompt, with key
     props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
     surface: 'terminal',
   })
-  expect(await band.find({ type: 'Text', text: 'engine' })).toBeDefined()
-
   await shown.press({ key: 'read' })
-  expect(await band.find({ type: 'Text', text: S1 })).toBeDefined()
-  expect((await band.find({ key: 'band:toggle' }))?.props.hotkey).toBe('1')
-  await band.press({ key: 'band:next' })
-  expect(host.played).toEqual([heard(S1), heard(S2)])
-  await band.press({ key: 'band:stop' })
+  // The reply itself is where the reading is shown, as in the editor: nothing under it repeats it.
   expect(await band.find({ type: 'Text', text: 'engine' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: S1 })).toBeUndefined()
+  expect(await shown.find({ type: 'Text', text: 'type b p n s + Enter' })).toBeDefined()
+  await shown.press({ key: 'stop' })
   await band.unmount()
   await shown.unmount()
 })
 
-test('when a reading ends by itself, the panel and the line above the prompt let it go', SLOW, async ($, on) => {
+test('the editor, where the player is clicked, shows no letters', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const ui = await $.ui.mount({ ...reply(), surface: 'vscode' })
+  await ui.press({ key: 'read' })
+  expect(await ui.find({ type: 'Text', text: /b p n s/ })).toBeUndefined()
+  await ui.press({ key: 'stop' })
+  await ui.unmount()
+})
+
+test('/readalong says whether clicks reach it: not in the classic layout, which names the switch', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const KEYS = /^Tab or the arrows move/
+  const CLICKS = /^Click a button, or use the keys/
+  const SWITCH = /Type \/tui fullscreen to switch/
+
+  const classic = await $.ui.mount({ ...PANEL, surface: 'terminal', viewport: { columns: 100, rows: 40, isFullscreen: false } })
+  expect(await classic.find({ type: 'Text', text: KEYS })).toBeDefined()
+  expect(await classic.find({ type: 'Text', text: SWITCH })).toBeDefined()
+  await classic.unmount()
+
+  const fullscreen = await $.ui.mount({
+    ...PANEL,
+    props: { ...PANEL.props, placement: 'dock' },
+    surface: 'terminal',
+    viewport: { columns: 200, rows: 40, isFullscreen: true },
+  })
+  expect(await fullscreen.find({ type: 'Text', text: CLICKS })).toBeDefined()
+  expect(await fullscreen.find({ type: 'Text', text: SWITCH })).toBeUndefined()
+  await fullscreen.unmount()
+
+  // The editor always takes clicks.
+  const editor = await $.ui.mount({ ...PANEL, surface: 'vscode' })
+  expect(await editor.find({ type: 'Text', text: CLICKS })).toBeDefined()
+  expect(await editor.find({ type: 'Text', text: SWITCH })).toBeUndefined()
+  await editor.unmount()
+})
+
+test('/readalong asks for room for the classic layout\'s extra lines', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const asked: number[] = []
+  on('ui.open', (_, e) => {
+    asked.push(e.rows ?? 0)
+    return { value: { isPlaced: true } }
+  })
+  await $.command.run({ command: 'readalong', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 200 } })
+  await $.command.run({ command: 'readalong', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 200 } })
+  await clock.settle()
+  expect(asked).toEqual([27, 30])
+})
+
+test('when a reading ends by itself, the panel lets it go', SLOW, async ($, on) => {
   const clock = mock.clock(on)
   mock.store(on)
   fakeMachine(on, clock)
   on('turn.complete', (_, e) => ({ text: e.answer }))
   const shown = await $.ui.mount({ ...reply('msg-9', ANSWER), surface: 'terminal' })
   const panel = await $.ui.mount({ ...PANEL, surface: 'terminal' })
-  const band = await $.ui.mount({
-    plugin: 'readalong',
-    component: 'AbovePrompt',
-    requestId: 'above-prompt',
-    props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { offset: 0, bodyRows: 10 }, view: {} },
-    surface: 'terminal',
-  })
   await $.turn.complete(answered(ANSWER))
   await panel.press({ key: 'panel:read' })
-  expect(await band.find({ key: 'band:stop' })).toBeDefined()
+  expect(await panel.find({ key: 'panel:stop' })).toBeDefined()
   await clock.advance(1000)
   await clock.advance(1000)
   await clock.settle()
   expect(await panel.find({ key: 'panel:read' })).toBeDefined()
   expect(await panel.find({ key: 'panel:stop' })).toBeUndefined()
-  expect(await band.find({ type: 'Text', text: 'engine' })).toBeDefined()
-  await band.unmount()
   await panel.unmount()
   await shown.unmount()
 })
@@ -1582,6 +1766,135 @@ test('a lone player letter at the prompt works the player and is not sent to Cla
   await $.prompt.submit({ text: 'please continue', origin: { kind: 'composer' }, wait: false })
   expect(sent).toEqual(['p', 'please continue'])
   await shown.unmount()
+})
+
+// The reading window: a reply too tall to read without scrolling is read in a window of fixed
+// height that moves on with the reading.
+
+/** Paragraph `n` of a long reply: one sentence. */
+const para = (n: number) => `Paragraph ${n} has one sentence of text in it.`
+const TALL = Array.from({ length: 12 }, (_, i) => para(i + 1)).join('\n\n')
+const WIDE = { columns: 80, rows: 40 }
+
+/** The window's box of text, when the reply is drawn in one: eight lines, what overflows cut away. */
+async function windowBox(ui: Drawing) {
+  return (await ui.findAll({ type: 'Box' })).find(found => found.props.height === 8 && found.props.overflow === 'hidden')
+}
+
+/** The arrows the window shows, top to bottom: `▲` for text hidden above it, `▼` for text left below. */
+async function arrows(ui: Drawing): Promise<string> {
+  return (await ui.findAll({ type: 'Text', text: /^[▲▼]$/ })).map(found => found.text).join('')
+}
+
+/** Whether any Markdown or Text drawn shows `text`. */
+async function shows(ui: Drawing, text: string): Promise<boolean> {
+  const markdown = (await ui.findAll({ type: 'Markdown' })).some(found => String(found.props.text).includes(text))
+  return markdown || (await ui.find({ type: 'Text', text: new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })) !== undefined
+}
+
+test('a long reply is read in a window of ten lines that moves on with the reading', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const ui = await $.ui.mount({ ...reply('msg-1', TALL), surface: 'vscode', viewport: WIDE })
+  await ui.press({ key: 'read' })
+  expect(await windowBox(ui)).toBeDefined()
+  expect(await litColour(ui, para(1))).toBe(YELLOW)
+  // At the top of the reply, an arrow below says there is more below, and none says anything is above.
+  expect(await arrows(ui)).toBe('▼')
+
+  // Seven sentences on, the first paragraphs have left at the top: arrows above and below.
+  for (let i = 0; i < 7; i += 1) await ui.press({ key: 'next' })
+  expect(await litColour(ui, para(8))).toBe(YELLOW)
+  expect(await arrows(ui)).toBe('▲▼')
+  expect(await shows(ui, para(1))).toBe(false)
+  // What follows is still there, below, dim.
+  expect(await shows(ui, para(9))).toBe(true)
+
+  // At the last paragraph the window shows the reply's end: the arrow above alone.
+  for (let i = 0; i < 4; i += 1) await ui.press({ key: 'next' })
+  expect(await litColour(ui, para(12))).toBe(YELLOW)
+  expect(await arrows(ui)).toBe('▲')
+
+  // Going back brings the first paragraphs back, by the same rule.
+  for (let i = 0; i < 11; i += 1) await ui.press({ key: 'previous' })
+  expect(await arrows(ui)).toBe('▼')
+  expect(await shows(ui, para(1))).toBe(true)
+
+  // Stopped, the reply is the engine's own again, whole.
+  await ui.press({ key: 'stop' })
+  expect(await isIdle(ui)).toBe(true)
+  expect(await windowBox(ui)).toBeUndefined()
+  await ui.unmount()
+})
+
+test('the player switches a long reply to the whole reply and back, keeping the place, and remembers it', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  const host = fakeMachine(on, clock)
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  const ui = await $.ui.mount({ ...reply('msg-1', TALL), surface: 'vscode', viewport: WIDE })
+  await ui.press({ key: 'read' })
+  for (let i = 0; i < 7; i += 1) await ui.press({ key: 'next' })
+  expect(await icons(ui)).toContain('Show the whole reply')
+
+  await ui.press({ key: 'view' })
+  expect(await windowBox(ui)).toBeUndefined()
+  expect(await shows(ui, para(1))).toBe(true)
+  expect(await litColour(ui, para(8))).toBe(YELLOW)
+  expect(await icons(ui)).toContain('Show the reading window')
+  // The reading went on where it was: nothing was said again.
+  expect(host.played.filter(said => said.startsWith('Paragraph 8'))).toHaveLength(1)
+
+  await ui.press({ key: 'view' })
+  expect(await windowBox(ui)).toBeDefined()
+  await ui.press({ key: 'view' })
+  await ui.press({ key: 'stop' })
+
+  // A later session reads long replies whole, as last switched.
+  await $.session.start({ cwd: '/', surface: 'vscode', isInteractive: true })
+  await ui.press({ key: 'read' })
+  expect(await windowBox(ui)).toBeUndefined()
+  expect(await icons(ui)).toContain('Show the reading window')
+  // The switch is the player's alone: the gear menu has no row for it.
+  await ui.press({ key: 'settings' })
+  expect(await ui.find({ key: 'view:Window' })).toBeUndefined()
+  expect(await ui.find({ key: 'view:Whole' })).toBeUndefined()
+  await ui.press({ key: 'settings' })
+  await ui.press({ key: 'stop' })
+  await ui.unmount()
+})
+
+test('a reply short enough to read without scrolling is drawn whole, with no switch', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  const ui = await $.ui.mount({ ...reply(), surface: 'vscode', viewport: WIDE })
+  await ui.press({ key: 'read' })
+  expect(await windowBox(ui)).toBeUndefined()
+  expect(await ui.find({ key: 'view' })).toBeUndefined()
+  await ui.press({ key: 'stop' })
+  await ui.unmount()
+})
+
+test('in a terminal, the window has the same rule, a word to switch it, and w at the prompt', SLOW, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  fakeMachine(on, clock)
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  const ui = await $.ui.mount({ ...reply('msg-1', TALL), surface: 'terminal', viewport: WIDE })
+  await ui.press({ key: 'read' })
+  expect(await windowBox(ui)).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'type b p n s w + Enter' })).toBeDefined()
+  expect((await ui.find({ key: 'view' }))?.props.label).toBe('whole')
+
+  const switched = await $.prompt.submit({ text: 'w', origin: { kind: 'composer' }, wait: false })
+  expect(switched.drop).toMatch(/window and the whole reply/)
+  await clock.settle()
+  expect(await windowBox(ui)).toBeUndefined()
+  expect((await ui.find({ key: 'view' }))?.props.label).toBe('window')
+  await ui.press({ key: 'stop' })
+  await ui.unmount()
 })
 
 // When the voice starts, and what a finished answer does whatever the order things happen in.

@@ -1,6 +1,6 @@
 {
   "name": "readalong",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reads Claude Code replies aloud with a local voice (Kokoro-82M), sentence by sentence, each in its own language: English, French, Spanish, Italian, Portuguese, Hindi, German and Dutch. The sentence being read, or each word as it is said, is highlighted, with previous, next, pause, speed and auto-read under the reply, and /readalong for the keyboard.",
   "author": {
     "name": "Imade Bouftini"
@@ -88,6 +88,16 @@
         "word"
       ],
       "default": "sentence"
+    },
+    "unread": {
+      "type": "string",
+      "title": "Text not read yet",
+      "description": "While a reply is read, the text after the sentence being read is dim, so what has been read stands out, as a reply being written does. plain leaves the whole reply as it is.",
+      "options": [
+        "dim",
+        "plain"
+      ],
+      "default": "dim"
     },
     "player": {
       "type": "string",

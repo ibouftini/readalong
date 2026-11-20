@@ -9,11 +9,12 @@ import { isSpoken, languageOf } from './language'
 import type { Language } from './language'
 import { isReading, reset, restoreSpeed, sentenceNow, setSpeed, start, step, stop, toggle } from './reader'
 import { ensureUp, hasOwnServer, sayOpen, stopVoice, voiceStatus, warmUp } from './service'
-import { autoReadNow, litBy, picksFor, restorePicks, settingsNow, settingsRows } from './settings'
-import { settingsFrom, speedLabel, speedsWith, voiceFor, voiceName } from './state'
+import { autoReadNow, litBy, pickView, picksFor, restorePicks, settingsNow, settingsRows } from './settings'
+import { settingsFrom, speedLabel, speedsWith } from './state'
 import type { Settings } from './state'
-import { markOf, parse, piecesOf, wordsOf } from './text'
-import type { Run } from './text'
+import { markOf, parse, piecesOf, piecesTo, splitNested, terminalMarker, wordsOf } from './text'
+import type { Block, Piece, Run } from './text'
+import { breaksOf, isGapBefore, linesOfReply, roomOf, TEXT_LINES, textOf, WINDOW_LINES, windowOf } from './window'
 
 // The engine reads each file's state values off its source, so each file names its own.
 const player = atom({ plugin: 'readalong', key: 'player' } as const, null)
@@ -54,6 +55,8 @@ const CONTROLS = {
   loading: { icon: 'loader-circle', name: 'Loading', word: 'loading' },
   next: { icon: 'skip-forward', name: 'Next sentence', word: 'next' },
   stop: { icon: 'square', name: 'Stop reading', word: 'stop' },
+  whole: { icon: 'chevrons-up-down', name: 'Show the whole reply', word: 'whole' },
+  window: { icon: 'chevrons-down-up', name: 'Show the reading window', word: 'window' },
   slower: { icon: 'minus', name: 'Slower', word: '−' },
   faster: { icon: 'plus', name: 'Faster', word: '+' },
   settings: { icon: 'settings', name: 'Settings', word: 'settings' },
@@ -215,47 +218,23 @@ export const register: Register = (on, options) => {
   // /readalong: the panel, which takes the keyboard. In a terminal it is the way to read and to
   // change the settings without a mouse: the buttons under a reply are clicked, and the terminal
   // reports clicks only in its fullscreen layout.
-  on('command.run', { command: PANEL }, async $ => {
+  //
+  // Where it shows is Claude Code's choice, made from its layout, which it picks as a session
+  // starts: in the fullscreen layout, beside the conversation from 110 columns, else above the
+  // prompt; in the classic layout, above the prompt, and clicks never reach it. The panel says
+  // which, so the person knows why, and how to have the same layout in every session.
+  on('command.run', { command: PANEL }, async ($, e) => {
     await update($, serviceState, () => null)
-    const opened = await $.ui.open({ id: PANEL, title: 'readalong', focus: true, closeOnEscape: true, rows: 26 }).catch(() => undefined)
+    // The classic layout's panel holds three more rows: the lines that say clicks do not work there.
+    const rows = e.presentation.isFullscreen ? 27 : 30
+    const opened = await $.ui.open({ id: PANEL, title: 'readalong', focus: true, closeOnEscape: true, rows }).catch(() => undefined)
     void refreshService($).catch(() => undefined)
     return opened?.isPlaced === false ? { text: `readalong: the panel could not open (${opened.reason})` } : {}
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANEL }, async ($, e) => drawPanel($, s, $.ui.resolve(e), e.surface))
-
-  // In a terminal, the reading in progress above the prompt: what is being read, and keys for it
-  // once the band has the keyboard (ctrl+x then tab).
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
-    const now = await read($, player)
-    const said = sentenceNow()
-    if (now === null || said === undefined) return next(e)
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const { speed, voice } = await settingsNow($, s)
-    const isPaused = now.phase === 'paused'
-    const room = Math.max(20, e.props.bodyColumns - 30)
-    const shown = said.speech.length > room ? `${said.speech.slice(0, room - 1)}…` : said.speech
-    // The voice of the sentence being read: its language's own, unless a server of the user's reads.
-    const voiceNow = (await hasOwnServer($, s)) ? voice : voiceFor(said.language, voice)
-    return (
-      <Box flexDirection="column">
-        <Box flexDirection="row" columnGap={1}>
-          <Text color="claude">{isPaused ? '❚❚' : '▶'}</Text>
-          <Text dimColor tabular>{`${now.index + 1}/${now.count} · ${speedLabel(speed)} · ${voiceName(voiceNow)}`}</Text>
-          <Text italic>{shown}</Text>
-        </Box>
-        <Box flexDirection="row" columnGap={1}>
-          {/* Digits: a bare digit typed into an empty prompt presses a band button, no Enter needed. */}
-          <Button key="band:toggle" plain hotkey="1" label={isPaused ? 'resume' : 'pause'} onPress={() => void toggle($)} />
-          <Button key="band:back" plain hotkey="2" label="back" onPress={() => void step($, -1)} />
-          <Button key="band:next" plain hotkey="3" label="next" onPress={() => void step($, 1)} />
-          <Button key="band:stop" plain hotkey="4" label="stop" onPress={() => void stop($)} />
-          <Text dimColor>type the number into the empty prompt, no Enter · /readalong for settings</Text>
-        </Box>
-      </Box>
-    )
-  })
+  on('ui.render', { component: 'Pane', requestId: PANEL }, async ($, e) =>
+    drawPanel($, s, $.ui.resolve(e), e.surface, e.surface === 'terminal' ? e.viewport?.isFullscreen : true),
+  )
 
   // A message sent by the person, typed or from Remote Control, ends this session's reading, as
   // speaking does (the service stops a reading when a microphone starts recording): they have
@@ -266,7 +245,8 @@ export const register: Register = (on, options) => {
   //
   // A message that is one of the player's letters alone works the player instead, and is not sent
   // to Claude, which would cost a turn for nothing: r reads the last answer; p, b, n and s pause,
-  // go back, go on and stop while a reply is read. The prompt says so, so nothing is hidden.
+  // go back, go on and stop while a reply is read, and w switches a long reply between the window
+  // and the whole reply. The prompt says so, so nothing is hidden.
   on('prompt.submit', async ($, e, next) => {
     const isPerson = e.origin.kind === 'composer' || e.origin.kind === 'bridge'
     const typed = e.text.trim().toLowerCase()
@@ -281,6 +261,7 @@ export const register: Register = (on, options) => {
       if (typed === 'p') void toggle($).catch(() => undefined)
       else if (typed === 'b') void step($, -1).catch(() => undefined)
       else if (typed === 'n') void step($, 1).catch(() => undefined)
+      else if (typed === 'w') void settingsNow($, s).then(now => pickView($, now.view === 'window' ? 'whole' : 'window')).catch(() => undefined)
       else void stop($).catch(() => undefined)
       clearPrompt($)
       return { drop: `readalong: ${did} (${typed} is its key while it reads, not sent to Claude)` }
@@ -430,6 +411,13 @@ export const register: Register = (on, options) => {
       if (wanted !== undefined) await setSpeed($, s, wanted)
     }
     const spinnerFrame = isBusy && Svg === undefined ? SPINNER[(await read($, frame)) % SPINNER.length] : undefined
+    // A reply too tall to read without scrolling is drawn in a window that slides down it with the
+    // reading (window.ts), unless the person switched to the whole reply; a shorter one is drawn
+    // whole either way, and has no switch, which would change nothing.
+    const isTerminal = e.surface === 'terminal'
+    const width = e.viewport?.columns ?? 80
+    const isLong = linesOfReply(reading, width, isTerminal).length > WINDOW_LINES
+    const switchView = () => void pickView($, now.view === 'window' ? 'whole' : 'window')
     // Gaps in cells: the editor reads a number as `ch` and ignores the named steps.
     const gap = 1
 
@@ -440,6 +428,7 @@ export const register: Register = (on, options) => {
           {control('read', isBusy ? 'loading' : playing.phase === 'paused' ? 'resume' : 'pause', playOrPause, spinnerFrame)}
           {control('next', 'next', () => void step($, 1))}
           {control('stop', 'stop', () => void stop($))}
+          {isLong ? control('view', now.view === 'window' ? 'whole' : 'window', switchView) : null}
           {control('settings', 'settings', toggleMenu)}
         </Box>
         <Box flexDirection="row" alignItems="center" columnGap={gap}>
@@ -449,6 +438,9 @@ export const register: Register = (on, options) => {
           </Text>
           {control('faster', 'faster', () => void nudgeSpeed(1))}
         </Box>
+        {/* The terminal passes clicks only in its fullscreen layout: the letters work the player
+            from the prompt, typed alone then Enter, in the order of the words they stand for. */}
+        {isTerminal ? <Text dimColor>{`type b p n s${isLong ? ' w' : ''} + Enter`}</Text> : null}
         <Text dimColor tabular>
           {`${index + 1} / ${playing.count}`}
         </Text>
@@ -479,7 +471,89 @@ export const register: Register = (on, options) => {
     const wordAt = playing.word ?? (playing.phase !== 'playing' && playing.isTimed ? 0 : undefined)
     const [litFrom, litTo] = (wordAt === undefined ? undefined : words[Math.min(wordAt, words.length - 1)]) ?? [sentence.start, sentence.end]
 
-    // The reply drawn around the sentence being read: the Markdown before its paragraph, the
+    // What has been read and what is being read stand out; the text after it, not read yet, is dim
+    // unless the setting says plain.
+    const ahead = now.unread === 'dim' ? { dimColor: true } : {}
+    /** A block's pieces as drawn: styled, the lit one marked, and those not read yet dim where `isAhead` says. */
+    const drawPieces = (pieces: readonly Piece[], isAhead: (piece: Piece) => boolean) =>
+      pieces.map(piece => {
+        const props = { ...styleOf(piece), ...(piece.isLit ? lit : {}), ...(isAhead(piece) ? ahead : {}) }
+        return Object.keys(props).length === 0 ? piece.text : <Text {...props}>{piece.text}</Text>
+      })
+    /**
+     * A block of text drawn as a row: its indent, quote bar and marker, then its text. The
+     * terminal's Markdown marks a list item `- `, a task `- [ ] `: the row wears the same.
+     */
+    const row = (b: Block, text: ReturnType<typeof drawPieces>, gaps: { marginTop?: number; marginBottom?: number } = {}, isAhead = false) => {
+      const marker = isTerminal ? terminalMarker(b.marker) : b.marker
+      return (
+        <Box flexDirection="row" flexShrink={0} {...gaps} paddingLeft={b.indent + (b.marker !== '' && !isTerminal ? 2 : 0)}>
+          {b.isQuote ? <Text dimColor>{'▎ '}</Text> : null}
+          {/* A list item not read yet has its marker dim with its text, as Markdown draws it. */}
+          {marker !== '' ? <Text {...(isAhead ? ahead : {})}>{marker}</Text> : null}
+          <Box flexGrow={1} flexShrink={1}>
+            {b.isHeading ? <Text weight="bold">{text}</Text> : <Text>{text}</Text>}
+          </Box>
+        </Box>
+      )
+    }
+    const current = drawPieces(piecesOf(block, litFrom, litTo), piece => piece.isAhead)
+
+    // A long reply in the window: the blocks the window spans, each drawn from its start so its
+    // lines break where they always do, the last cut after the window's last line.
+    const view = isLong && now.view === 'window' ? windowOf(reading, sentence.block, litFrom, width, isTerminal) : ({ kind: 'whole' } as const)
+    if (view.kind === 'window') {
+      const shown: RenderElement[] = []
+      for (let i = view.from; i <= view.to; i += 1) {
+        const b = reading.blocks[i]
+        if (b === undefined) continue
+        const marginTop = i > view.from && isGapBefore(reading, i) ? 1 : 0
+        const lines = i === view.to ? view.toLines : null
+        // The window's last line is the blank row before this block: that row alone.
+        if (lines === 0) {
+          shown.push(<Box flexShrink={0} height={marginTop} />)
+        } else if (b.kind === 'text') {
+          const end = lines === null ? undefined : breaksOf(textOf(b), roomOf(b, width, isTerminal))[lines]
+          const pieces = i === sentence.block ? piecesOf(block, litFrom, litTo) : piecesOf(b, 0, 0)
+          const kept = end === undefined ? pieces : piecesTo(pieces, end)
+          const text = i === sentence.block ? drawPieces(kept, piece => piece.isAhead) : drawPieces(kept, () => i > sentence.block)
+          shown.push(row(b, text, { marginTop }, i > sentence.block))
+        } else {
+          // Code, a table, maths: drawn by Markdown, whole, its lines below the window cut away.
+          const source = reading.lines.slice(b.from, b.to).join('\n')
+          shown.push(
+            <Box flexDirection="column" flexShrink={0} marginTop={marginTop} {...(lines === null ? {} : { height: lines, overflow: 'hidden' as const })}>
+              <Markdown text={source} {...(i > sentence.block ? ahead : {})} />
+            </Box>,
+          )
+        }
+      }
+      /** The line above or below the text: an arrow, dim and centred, where more of the reply is hidden; blank, so the text never moves, where none is. */
+      const edge = (glyph: string, isShown: boolean) => (
+        <Box flexDirection="row" flexShrink={0} height={1} justifyContent="center">
+          {isShown ? <Text dimColor>{glyph}</Text> : null}
+        </Box>
+      )
+      return (
+        <Box flexDirection="column">
+          {controls}
+          {setupPanel}
+          {menu}
+          {/* The window: a fixed height, so the reply never grows or shrinks as it is read. Its text
+              is drawn from the top at the reply's start; further on, down to the window's last line
+              and aligned to the bottom, so the lines above that do not fit are cut away. */}
+          <Box flexDirection="column" flexShrink={0} height={WINDOW_LINES}>
+            {edge('▲', view.isMoreAbove)}
+            <Box flexDirection="column" flexShrink={0} height={TEXT_LINES} overflow="hidden" justifyContent={view.isAtTop ? 'flex-start' : 'flex-end'}>
+              {shown}
+            </Box>
+            {edge('▼', view.isMoreBelow)}
+          </Box>
+        </Box>
+      )
+    }
+
+    // The whole reply around the sentence being read: the Markdown before its paragraph, the
     // paragraph itself with the sentence lit, then the Markdown after it.
     const before = reading.lines.slice(0, block.from).join('\n').replace(/\s+$/, '')
     const after = reading.lines
@@ -488,30 +562,29 @@ export const register: Register = (on, options) => {
       .replace(/^(\s*\n)+/, '')
       .replace(/\s+$/, '')
     // The terminal leaves a blank row between paragraphs; the editor's own spacing is tighter.
-    const isTerminal = e.surface === 'terminal'
     const gapAbove = isTerminal && before !== '' && reading.lines[block.from - 1]?.trim() === '' ? 1 : 0
     const gapBelow = isTerminal && after !== '' && reading.lines[block.to]?.trim() === '' ? 1 : 0
-    const listIndent = block.marker !== '' && !isTerminal ? 2 : 0
-
-    const pieces = piecesOf(block, litFrom, litTo).map(piece => {
-      const props = { ...styleOf(piece), ...(piece.isLit ? lit : {}) }
-      return Object.keys(props).length === 0 ? piece.text : <Text {...props}>{piece.text}</Text>
-    })
-
+    // Items nested under the one read keep their indent, which Markdown drawn alone would lose.
+    const below = splitNested(after)
     return (
       <Box flexDirection="column">
         {controls}
         {setupPanel}
         {menu}
         {before !== '' ? <Markdown text={before} /> : null}
-        <Box flexDirection="row" marginTop={gapAbove} marginBottom={gapBelow} paddingLeft={block.indent + listIndent}>
-          {block.isQuote ? <Text dimColor>{'▎ '}</Text> : null}
-          {block.marker !== '' ? <Text>{block.marker}</Text> : null}
-          <Box flexGrow={1} flexShrink={1}>
-            {block.isHeading ? <Text weight="bold">{pieces}</Text> : <Text>{pieces}</Text>}
+        {row(block, current, { marginTop: gapAbove, marginBottom: gapBelow })}
+        {below.nested !== '' ? (
+          <Box flexDirection="column" paddingLeft={below.indent}>
+            <Markdown text={below.nested} {...ahead} />
           </Box>
-        </Box>
-        {after !== '' ? <Markdown text={after} /> : null}
+        ) : null}
+        {below.rest === '' ? null : isTerminal && below.nested !== '' && below.isGap ? (
+          <Box flexDirection="column" marginTop={1}>
+            <Markdown text={below.rest} {...ahead} />
+          </Box>
+        ) : (
+          <Markdown text={below.rest} {...ahead} />
+        )}
       </Box>
     )
   })
@@ -578,7 +651,13 @@ function clearPrompt($: EngineInterface) {
 }
 
 /** The player's letters, typed alone at the prompt while a reply is read, and what each says it did. */
-const KEYS: Record<string, string> = { p: 'paused, or resumed', b: 'back a sentence', n: 'on to the next sentence', s: 'stopped' }
+const KEYS: Record<string, string> = {
+  p: 'paused, or resumed',
+  b: 'back a sentence',
+  n: 'on to the next sentence',
+  s: 'stopped',
+  w: 'switched between the window and the whole reply',
+}
 
 /**
  * Reads the answer that finished last, from the panel or a lone r at the prompt. One not in
@@ -612,7 +691,14 @@ async function refreshService($: EngineInterface) {
  * and a field for a colour's hex code; and what the voice is doing on this computer, with a way to
  * stop it. Tab and the arrows walk its buttons, Enter presses one, a letter presses its own.
  */
-async function drawPanel($: EngineInterface, s: Settings, ui: ReturnType<EngineInterface['ui']['resolve']>, surface: Parameters<typeof settingsRows>[1]): Promise<RenderElement> {
+async function drawPanel(
+  $: EngineInterface,
+  s: Settings,
+  ui: ReturnType<EngineInterface['ui']['resolve']>,
+  surface: Parameters<typeof settingsRows>[1],
+  /** Whether a click reaches the panel: true, false in the terminal's classic layout, undefined unknown. */
+  isClickable: boolean | undefined,
+): Promise<RenderElement> {
   const { Box, Button, Text } = ui
   const now = await settingsNow($, s)
   const rows = settingsRows(ui, surface, now, picksFor($, s, now), true, text => $.ui.toast(text))
@@ -730,7 +816,12 @@ async function drawPanel($: EngineInterface, s: Settings, ui: ReturnType<EngineI
         {rows.looks}
       </Box>
       {voiceSection}
-      <Text dimColor>Tab or the arrows move · Enter presses · the letter before a colon presses its button · Esc closes</Text>
+      <Text dimColor>{`${isClickable === true ? 'Click a button, or use the keys: ' : ''}Tab or the arrows move · Enter presses · the letter before a colon presses its button · Esc closes`}</Text>
+      {isClickable === false ? (
+        <Text dimColor>
+          Clicks do not work in Claude Code's classic layout. Type /tui fullscreen to switch: clicks then work, and from 110 columns this panel sits beside the conversation. This session restarts with its conversation, and later sessions keep the layout.
+        </Text>
+      ) : null}
     </Box>
   )
 }

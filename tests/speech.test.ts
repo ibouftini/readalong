@@ -136,3 +136,13 @@ test('marks between words that are not maths are left as they are', () => {
   expect(sayable('So a^2 + b^2 = c^2, always.')).toBe('So eh squared plus b squared equals c squared, always.')
   expect(sayable('Here x1 = 2 * x0 - 1.')).toBe('Here x1 equals 2 times x0 minus 1.')
 })
+
+test('vs is said as versus; VS in capitals, as in VS Code, is spelled by the voice', () => {
+  expect(sayable('Cats vs dogs.')).toBe('Cats versus dogs.')
+  expect(sayable('Cats vs. dogs.')).toBe('Cats versus dogs.')
+  expect(sayable('Vs. last year, it is faster.')).toBe('versus last year, it is faster.')
+  expect(sayable('Open the reply in VS Code.')).toBe('Open the reply in VS Code.')
+  expect(sayable('The VS Code extension draws it.')).toBe('The VS Code extension draws it.')
+  expect(sayable('Les chats vs les chiens.', 'fr')).toBe('Les chats contre les chiens.')
+  expect(sayable('Ouvrez-le dans VS Code.', 'fr')).toBe('Ouvrez-le dans VS Code.')
+})

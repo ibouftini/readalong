@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { inline, markOf, parse, piecesOf, sayable, splitSentences, wordsOf } from '../hooks/text'
+import { inline, markOf, parse, piecesOf, sayable, splitNested, splitSentences, terminalMarker, wordsOf } from '../hooks/text'
 
 const said = (markdown: string) => parse(markdown).sentences.map(s => s.speech)
 
@@ -82,6 +82,15 @@ test('a sentence is lit across the runs it spans, and nothing else', () => {
     ['two. ', false],
     ['Three', true],
     [' four.', true],
+  ])
+  // What comes before the lit sentence has been read; what comes after it is ahead.
+  const [first] = reading.sentences
+  if (first === undefined) throw new Error('no first sentence')
+  expect(piecesOf(block, first.start, first.end).map(p => [p.text, p.isLit, p.isAhead])).toEqual([
+    ['One ', true, false],
+    ['two.', true, false],
+    [' Three', false, true],
+    [' four.', false, true],
   ])
 })
 
@@ -234,4 +243,31 @@ test('a label naming a language says what the words after it are in', () => {
   // What reads as English after a label stays English: a status, not a translation.
   expect(units('- **French:** done\n- **German:** 12 strings missing').map(u => u.slice(0, 2))).toEqual(['en', 'en'])
   expect(units('French: the catalog is complete and all 240 strings are translated.').map(u => u.slice(0, 2))).toEqual(['en'])
+})
+
+test('the terminal marks list items as its Markdown does', () => {
+  expect(terminalMarker('• ')).toBe('- ')
+  expect(terminalMarker('• ☐ ')).toBe('- [ ] ')
+  expect(terminalMarker('• ☑ ')).toBe('- [x] ')
+  expect(terminalMarker('2. ')).toBe('2. ')
+  expect(terminalMarker('3. ☐ ')).toBe('3. [ ] ')
+  expect(terminalMarker('')).toBe('')
+})
+
+test('items nested under the one being read are cut off the rest, dedented, with their indent', () => {
+  expect(splitNested('   - Heart\n     - Emma\n- [ ] Try it.\n\nDone.')).toEqual({
+    nested: '- Heart\n  - Emma',
+    indent: 3,
+    rest: '- [ ] Try it.\n\nDone.',
+    isGap: false,
+  })
+  // A blank line before the rest is kept, for the terminal's blank row.
+  expect(splitNested('  - One\n\nAfter.')).toEqual({ nested: '- One', indent: 2, rest: 'After.', isGap: true })
+  // Nested to the end of the reply: no rest.
+  expect(splitNested('\t- Deep')).toEqual({ nested: '- Deep', indent: 4, rest: '', isGap: false })
+  // Anything that does not open with a nested item is left whole: a paragraph, a top-level item,
+  // a quote, a table, a paragraph indented a little.
+  for (const after of ['Next paragraph.', '- Top item', '> Quote', '| a | b |', '  Indented text.']) {
+    expect(splitNested(after)).toEqual({ nested: '', indent: 0, rest: after, isGap: false })
+  }
 })

@@ -60,6 +60,22 @@ export function isFollow(value: unknown): value is Follow {
   return (FOLLOWS as readonly unknown[]).includes(value)
 }
 
+/** How the text not read yet is drawn while a reply is read: dim, so what has been read stands out, or plain. */
+export const UNREADS = ['dim', 'plain'] as const
+export type Unread = (typeof UNREADS)[number]
+
+export function isUnread(value: unknown): value is Unread {
+  return (UNREADS as readonly unknown[]).includes(value)
+}
+
+/** How a reply too long for the window is shown while read: in the window, which moves on with the reading, or whole; switched in the player. */
+export const VIEWS = ['window', 'whole'] as const
+export type View = (typeof VIEWS)[number]
+
+export function isView(value: unknown): value is View {
+  return (VIEWS as readonly unknown[]).includes(value)
+}
+
 /** The colours the menu offers as swatches, round the colour wheel; each can be named in `/config` too. */
 export const COLORS = {
   red: '#F94144',
@@ -102,6 +118,7 @@ export type Settings = {
   highlight: Highlight
   highlightColor: string
   follow: Follow
+  unread: Unread
   player: (typeof PLAYERS)[number]
   autoRead: boolean
   chime: boolean
@@ -145,6 +162,7 @@ export function settingsFrom(options: PluginOptions): Settings {
     highlight: pick('highlight', HIGHLIGHTS, 'marker'),
     highlightColor: colorFrom(text('highlightColor', 'yellow').toLowerCase(), text('customColor', '')),
     follow: pick('follow', FOLLOWS, 'sentence'),
+    unread: pick('unread', UNREADS, 'dim'),
     player: pick('player', PLAYERS, 'auto'),
     autoRead: bool('autoRead', false),
     chime: bool('chime', true),

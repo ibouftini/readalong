@@ -631,9 +631,13 @@ function likeness(said: string, shown: string): number {
   return shorter.length >= 2 && (shown.includes(said) || said.includes(shown)) ? 1 : 0
 }
 
-export type Piece = Run & { isLit: boolean }
+/** A piece of a block to draw: lit (the sentence or word being read), or ahead of it (not read yet). */
+export type Piece = Run & { isLit: boolean; isAhead: boolean }
 
-/** A block's runs cut where [start, end) begins and ends: the pieces to draw, the lit ones marked. */
+/**
+ * A block's runs cut where [start, end) begins and ends: the pieces to draw, the lit ones marked,
+ * and those after `end`, not read yet, marked ahead.
+ */
 export function piecesOf(block: Block, start: number, end: number): Piece[] {
   const pieces: Piece[] = []
   let at = 0
@@ -641,17 +645,65 @@ export function piecesOf(block: Block, start: number, end: number): Piece[] {
     const runEnd = at + run.text.length
     const litFrom = Math.min(Math.max(start, at), runEnd)
     const litTo = Math.min(Math.max(end, at), runEnd)
-    const parts: Array<[number, number, boolean]> = [
-      [at, litFrom, false],
-      [litFrom, litTo, true],
-      [litTo, runEnd, false],
+    const parts: Array<[number, number, boolean, boolean]> = [
+      [at, litFrom, false, false],
+      [litFrom, litTo, true, false],
+      [litTo, runEnd, false, true],
     ]
-    for (const [from, to, isLit] of parts) {
-      if (to > from) pieces.push({ ...run, text: run.text.slice(from - at, to - at), isLit })
+    for (const [from, to, isLit, isAhead] of parts) {
+      if (to > from) pieces.push({ ...run, text: run.text.slice(from - at, to - at), isLit, isAhead })
     }
     at = runEnd
   }
   return pieces
+}
+
+/** Pieces with the text from character `to` of their block on left out, as the window's last line cuts a block. */
+export function piecesTo(pieces: readonly Piece[], to: number): Piece[] {
+  const kept: Piece[] = []
+  let at = 0
+  for (const piece of pieces) {
+    if (at >= to) break
+    kept.push(at + piece.text.length <= to ? piece : { ...piece, text: piece.text.slice(0, to - at) })
+    at += piece.text.length
+  }
+  return kept
+}
+
+/**
+ * A list item's marker as the terminal's Markdown draws it: `- ` for a bullet, `[ ] ` and `[x] `
+ * for a task's box, a number as it is. The editor keeps the marks `parse` gives (`• `, `☐ `).
+ */
+export function terminalMarker(marker: string): string {
+  return marker.replace(/^• /, '- ').replace('☐ ', '[ ] ').replace('☑ ', '[x] ')
+}
+
+/** A line that opens a list item nested in another: indented, then a bullet or a number. */
+const NESTED_ITEM = /^[ \t]+([-*+]|\d+[.)])[ \t]/
+
+/**
+ * The Markdown after the block being read, cut where a list nested under that block ends.
+ *
+ * Drawn alone, Markdown reads the first item of `after` as a list of its own, at the left
+ * margin, so items nested under the one being read would jump left while it is read. The head
+ * that is nested (the lines up to the first one back at the margin) comes back dedented, with
+ * the indent to draw it at; `rest` is the remainder, and `isGap` says a blank line came
+ * between the two. With no nested head, `nested` is empty and `rest` is `after`.
+ */
+export function splitNested(after: string): { nested: string; indent: number; rest: string; isGap: boolean } {
+  const lines = after.split('\n')
+  if (!NESTED_ITEM.test(lines[0] ?? '')) return { nested: '', indent: 0, rest: after, isGap: false }
+  const end = lines.findIndex(line => line.trim() !== '' && !/^[ \t]/.test(line))
+  const head = end === -1 ? lines : lines.slice(0, end)
+  const rest = end === -1 ? [] : lines.slice(end)
+  const widthOf = (line: string) => (line.match(/^[ \t]*/)?.[0] ?? '').replace(/\t/g, '    ').length
+  const indent = Math.min(...head.filter(line => line.trim() !== '').map(widthOf))
+  const nested = head
+    .map(line => line.replace(/\t/g, '    ').slice(Math.min(indent, widthOf(line))))
+    .join('\n')
+    .replace(/\s+$/, '')
+  const isGap = rest.length > 0 && head[head.length - 1]?.trim() === ''
+  return { nested, indent, rest: rest.join('\n'), isGap }
 }
 
 /** A short mark of a reply's opening, so two blocks that share a message id are told apart. */

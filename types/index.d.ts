@@ -78,6 +78,10 @@ declare module 'claude-code' {
       voice: string | null
       /** What the highlight follows, the sentence or each word, as picked in the settings menu; null until picked. */
       follow: 'sentence' | 'word' | null
+      /** How the text not read yet is drawn, dim or plain, as picked in the settings menu; null until picked. */
+      unread: 'dim' | 'plain' | null
+      /** How a long reply is shown while read, in the window or whole, as last switched in the player; null until switched. */
+      view: 'window' | 'whole' | null
       /** The reply whose settings menu is open, by its block id; null while none is. */
       menu: string | null
       /** The install of the voice, offered or running under a reply; null while none is. */

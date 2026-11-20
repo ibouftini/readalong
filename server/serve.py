@@ -76,7 +76,7 @@ if TYPE_CHECKING:
     import numpy as np
     from kokoro_onnx import Kokoro
 
-VERSION = '0.1.0'
+VERSION = '0.2.0'
 # What the plugin and the service must agree on; raised when a route changes its meaning.
 PROTOCOL = 6
 DEFAULT_PORT = 8881

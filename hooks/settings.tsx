@@ -5,8 +5,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, RenderElement, RenderSurface, TextProps } from 'claude-code'
 
 import { setVoice } from './reader'
-import { COLORS, colorHex, colorSetting, hexColor, inkOn, isFollow, isHighlight, VOICES, voiceName } from './state'
-import type { Follow, Highlight, Settings } from './state'
+import { COLORS, colorHex, colorSetting, hexColor, inkOn, isFollow, isHighlight, isUnread, isView, VOICES, voiceName } from './state'
+import type { Follow, Highlight, Settings, Unread, View } from './state'
 
 type $ = EngineInterface
 type UI = ReturnType<EngineInterface['ui']['resolve']>
@@ -18,6 +18,8 @@ const chimeState = atom({ plugin: 'readalong', key: 'chime' } as const, null)
 const highlightState = atom({ plugin: 'readalong', key: 'highlight' } as const, null)
 const highlightColorState = atom({ plugin: 'readalong', key: 'highlightColor' } as const, null)
 const followState = atom({ plugin: 'readalong', key: 'follow' } as const, null)
+const unreadState = atom({ plugin: 'readalong', key: 'unread' } as const, null)
+const viewState = atom({ plugin: 'readalong', key: 'view' } as const, null)
 const voiceState = atom({ plugin: 'readalong', key: 'voice' } as const, null)
 
 /** How a pick is kept in `$.store`: with the `/config` value it was made under, so a later change there wins. */
@@ -30,6 +32,8 @@ export type Now = {
   highlight: Highlight
   color: string
   follow: Follow
+  unread: Unread
+  view: View
   voice: string
   speed: number
 }
@@ -41,6 +45,8 @@ export async function settingsNow($: $, s: Settings): Promise<Now> {
     highlight: (await read($, highlightState)) ?? s.highlight,
     color: (await read($, highlightColorState)) ?? s.highlightColor,
     follow: (await read($, followState)) ?? s.follow,
+    unread: (await read($, unreadState)) ?? s.unread,
+    view: (await read($, viewState)) ?? 'window',
     voice: (await read($, voiceState)) ?? s.voice,
     speed: (await read($, pickedSpeed)) ?? s.speed,
   }
@@ -53,6 +59,8 @@ export async function restorePicks($: $, s: Settings) {
   const highlight = (await $.store.get('highlight')) as Kept
   const color = (await $.store.get('highlightColor')) as Kept
   const follow = (await $.store.get('follow')) as Kept
+  const unread = (await $.store.get('unread')) as Kept
+  const view = (await $.store.get('view')) as Kept
   const voice = (await $.store.get('voice')) as Kept
   await update($, autoReadState, () => (typeof autoRead?.value === 'boolean' && autoRead.configured === s.autoRead ? autoRead.value : null))
   await update($, chimeState, () => (typeof chime?.value === 'boolean' && chime.configured === s.chime ? chime.value : null))
@@ -62,6 +70,9 @@ export async function restorePicks($: $, s: Settings) {
     return kept !== undefined && color?.configured === s.highlightColor ? kept : null
   })
   await update($, followState, () => (isFollow(follow?.value) && follow.configured === s.follow ? follow.value : null))
+  await update($, unreadState, () => (isUnread(unread?.value) && unread.configured === s.unread ? unread.value : null))
+  // The view is the player's alone, kept as last switched: there is no setting for it to defer to.
+  await update($, viewState, () => (isView(view?.value) ? view.value : null))
   await update($, voiceState, () => (typeof voice?.value === 'string' && voice.configured === s.voice ? voice.value : null))
 }
 
@@ -94,6 +105,7 @@ export type Picks = {
   chime: (value: boolean) => Promise<void>
   highlight: (value: Highlight) => Promise<void>
   follow: (value: Follow) => Promise<void>
+  unread: (value: Unread) => Promise<void>
   color: (value: string) => Promise<void>
   voice: (value: string) => Promise<void>
 }
@@ -118,6 +130,10 @@ export function picksFor($: $, s: Settings, now: Now): Picks {
       await update($, followState, () => value)
       await $.store.set('follow', { value, configured: s.follow })
     },
+    unread: async value => {
+      await update($, unreadState, () => value)
+      await $.store.set('unread', { value, configured: s.unread })
+    },
     // With the highlight off, a colour turns the marker on, so the colour shows.
     color: async value => {
       await update($, highlightColorState, () => value)
@@ -133,6 +149,12 @@ export function picksFor($: $, s: Settings, now: Now): Picks {
       await setVoice($, s, value, `My name is ${voiceName(value)} and I will read for you.`, now.speed)
     },
   }
+}
+
+/** Shows long replies in the window or whole, from now on: switched by the player's button or its letter. */
+export async function pickView($: $, value: View) {
+  await update($, viewState, () => value)
+  await $.store.set('view', { value })
 }
 
 /**
@@ -277,6 +299,16 @@ export function settingsRows(
       now.follow,
       picks.follow,
     ),
+    row(
+      'unread',
+      'Unread',
+      [
+        ['dim', 'Dim'],
+        ['plain', 'Plain'],
+      ] as const,
+      now.unread,
+      picks.unread,
+    ),
     colorRow,
   ]
   if (isPanel) {
@@ -301,7 +333,10 @@ export function settingsRows(
         <Text>
           {'A reply is read like this: '}
           <Text {...lit}>the sentence being read is marked</Text>
-          {now.highlight === 'off' ? ' (the highlight is off).' : ', and the mark moves on.'}
+          {/* What follows the mark is the sample's text still to read: drawn as the setting draws it. */}
+          <Text {...(now.unread === 'dim' ? { dimColor: true } : {})}>
+            {`${now.highlight === 'off' ? ' (the highlight is off)' : ''}${now.unread === 'dim' ? ', and the rest is dim.' : now.highlight === 'off' ? '.' : ', and the mark moves on.'}`}
+          </Text>
         </Text>
       </Box>,
     )
